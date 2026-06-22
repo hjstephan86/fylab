@@ -4,7 +4,7 @@ fylab.algorithms.subgraph_finance
 Subgraph-Isomorphismus für Finanzmuster-Erkennung.
 
 Verwendet denselben Subgraph Algorithmus wie pylabb
-(git+https://gitlab.com/epp-group/subgraph.git@v1.0.0).
+(git+https://github.com/hjstephan86/subgraph.git@v1.0.0).
 
 Problemstellung
 ---------------
@@ -220,7 +220,7 @@ def subgraph_contains(
     except ImportError as exc:
         raise ImportError(
             "Das Paket 'subgraph' fehlt.\n"
-            "  pip install git+https://gitlab.com/epp-group/subgraph.git@v1.0.0"
+            "  pip install git+https://github.com/hjstephan86/subgraph.git@v1.0.0"
         ) from exc
 
     n_max = max(R.shape[0], G.shape[0])

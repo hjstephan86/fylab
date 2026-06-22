@@ -107,7 +107,7 @@ source venv/bin/activate        # Linux / macOS
 pip install -e ".[dev]"
 
 # 4. Optionale Subgraph-Bibliothek installieren
-pip install git+https://gitlab.com/epp-group/subgraph.git@v1.0.0
+pip install git+https://github.com/hjstephan86/subgraph.git@v1.0.0
 ```
 
 ### GUI starten
