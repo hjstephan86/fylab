@@ -1,0 +1,1012 @@
+\documentclass[a4paper,12pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[ngerman]{babel}
+\usepackage{amsmath, amssymb, amsthm}
+\usepackage{geometry}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage[hidelinks]{hyperref}
+\usepackage{graphicx}
+\usepackage{tikz}
+\usepackage{enumitem}
+\usepackage{rotating}
+\usetikzlibrary{graphs, positioning, arrows.meta}
+
+\setlist[itemize,1]{label=--}
+
+\geometry{margin=2.5cm}
+
+\definecolor{mainblue}{RGB}{25, 70, 140}
+\definecolor{accentred}{RGB}{180, 50, 30}
+\definecolor{lightgray}{RGB}{245, 245, 248}
+\definecolor{darkgray}{RGB}{60, 60, 70}
+\definecolor{darkgreen}{RGB}{30, 100, 50}
+
+\hypersetup{
+	colorlinks=true,
+	linkcolor=mainblue,
+	citecolor=accentred,
+	urlcolor=mainblue
+}
+
+\definecolor{codegray}{rgb}{0.95,0.95,0.95}
+\lstset{
+    backgroundcolor=\color{codegray},
+    basicstyle=\ttfamily\small,
+    breaklines=true,
+    frame=single,
+    language=Python,
+    numbers=left,
+    numberstyle=\tiny,
+    keywordstyle=\color{blue},
+    commentstyle=\color{gray},
+    stringstyle=\color{orange!80!black},
+}
+
+\newtheorem{satz}{Satz}
+\newtheorem{definition}{Definition}
+\newtheorem{theorem}{Theorem}
+\newtheorem*{beweis*}{Beweis}
+\newtheorem{beispiel}{Beispiel}
+\newtheorem{reduktion}{Reduktion}
+
+% ============================================================
+\title{\textbf{FyLab -- Finanzlabor}\\
+\large Graphbasierte Finanzverwaltung}
+\author{Stephan Epp}
+\date{18. März 2026}
+% ============================================================
+
+\begin{document}
+\maketitle
+\tableofcontents
+\newpage
+
+% ============================================================
+\section{Einführung und Motivation}
+\label{sec:intro}
+% ============================================================
+
+FyLab ist ein umfassendes Python-GUI-Framework für Finanzverwaltung und
+-analyse, entwickelt analog zu PyLab für die Regelungstechnik. Es setzt
+PyQt6 als GUI-Framework ein und nutzt NumPy, SciPy und Matplotlib
+für numerische Berechnungen und Visualisierungen.
+
+Im Mittelpunkt steht die Frage: \emph{Welche klassischen Probleme der
+Informatik treten im Finanzbereich auf, und wie können effiziente oder
+approximative Algorithmen dafür eingesetzt werden?}
+
+Die Antwort ist vielschichtig: Finanzmärkte sind Netzwerke. Aktiva sind
+Knoten, Handelsbeziehungen und Zahlungsströme sind Kanten. Viele
+Optimierungsprobleme der Finanzwelt lassen sich auf bekannte
+graphtheoretische Probleme reduzieren -- einige davon polynomial lösbar,
+andere NP-vollständig (mit Approximationsalgorithmen).
+
+\textbf{Zentrale Leitidee in FyLab}: Der Subgraph Algorithmus
+bildet das algorithmische Rückgrat des gesamten Graphverarbeitungsmoduls.
+Er löst das Subgraph-Isomorphismus\-problem mit optimaler Laufzeit durch
+zyklische Spalten-Rotation und polynomiale Hash-Signaturen ($O(n^3)$).
+Durch die zentrale Utility-Funktion \texttt{subgraph\_contains(R, G)} wird
+er in \emph{allen vier} Algorithmusmodulen konsequent eingesetzt.
+
+% ============================================================
+\section{Relevante Finanzprobleme der Informatik}
+\label{sec:probleme}
+% ============================================================
+
+\subsection{Übersicht}
+
+\begin{table}[h]
+    \centering
+    \begin{tabular}{@{}lllc@{}}
+        \toprule
+        \textbf{Finanzproblem} & \textbf{Reduktion auf} & \textbf{Algorithmus}
+        & \textbf{Kompl.} \\
+        \midrule
+        Portfolio-Diversifikat.  & MST (Korrelationsgraph)   & Kruskal
+        & $O(E \log V)$          \\
+        Arbitrage-Erkennung        & Negativer Zyklus          & Bellman-Ford
+        & $O(VE)$                \\
+        Cashflow-Optim.       & Max-Flow                  & Edmonds-Karp
+        & $O(VE^2)$              \\
+        Schuldenausgleich          & Greedy Nettobalanz        & Greedy + Sort
+        & $O(n \log n)$          \\
+        Betrugserkennung           & \textbf{Subgraph-Iso.}    & \textbf{Subgraph Alg.}
+        & $O(n^3)$               \\
+        Systemisches Risiko        & SCC                       & Tarjan
+        & $O(V+E)$               \\
+        Steueroptimierung          & Subset-Sum (NP-hart)      & DP-Approx.
+        & Pseudopolynom.         \\
+        Transaktionsrouting        & Kürzester Pfad            & Dijkstra
+        & $O((V+E)\log V)$       \\
+        Portfolioauswahl           & Rucksack (NP-hart)        & FPTAS
+        & $O(n \cdot W/\varepsilon)$ \\
+        Risikokorrelation          & Community Detection       & Louvain
+        & $O(n \log n)$          \\
+        \bottomrule
+    \end{tabular}
+    \caption{Übersicht der zehn zentralen Finanzprobleme und ihrer
+    algorithmischen Reduktionen}
+    \label{tab:probleme}
+\end{table}
+
+% ============================================================
+\section{Subgraph-Isomorphismus: Architektur in FyLab}
+\label{sec:subgraph}
+% ============================================================
+
+\subsection{Motivation und Überblick}
+
+Subgraph-Isomorphismus ist das \emph{algorithmische Kernproblem} von FyLab.
+Während klassische Bibliotheken (z.B.\ NetworkX) den VF2-Algorithmus~\cite{cordella2004}
+verwenden, setzt FyLab durchgängig auf den Subgraph Algorithmus~\cite{subgraph}.
+
+Die Schlüsseleigenschaft: anstelle von exponentieller Backtracking-Suche
+nuzt der Subgraph Algorithmus zyklische Spalten-Rotation und
+polynomiale Hash-Signaturen der Adjazenzmatrix -- und erreicht damit
+\emph{optimale Laufzeit für das Subgraph-Problem in der Praxis}: $O(n^3)$.
+
+\textbf{Designprinzip in FyLab}: Alle vier Algorithmusmodule nutzen
+denselben Aufruf über die zentrale Utility-Funktion \texttt{subgraph\_contains}.
+So wird das Subgraph-Problem an jeder Stelle im System mit derselben,
+optimalen Methode gelöst -- konsistent, testbar und gut dokumentiert.
+
+\subsection{Problemdefinition}
+
+\begin{definition}[Subgraph-Isomorphismus]
+    Seien $G = (V_G, E_G)$ und $R = (V_R, E_R)$ gerichtete Graphen.
+    $R$ ist \emph{subgraph-isomorph} zu $G$, geschrieben $R \subseteq G$,
+    wenn eine injektive Abbildung $f: V_R \to V_G$ existiert mit:
+    \[
+        (u, v) \in E_R \Rightarrow (f(u), f(v)) \in E_G \quad
+        \forall u, v \in V_R
+    \]
+\end{definition}
+
+\begin{theorem}
+    Subgraph-Isomorphismus ist NP-vollständig (allgemeiner Fall)~\cite{cook1972, garey1979}.
+\end{theorem}
+
+\begin{beweis*}
+    Das Cliquen-Problem ist ein Spezialfall: eine $k$-Clique ist ein
+    vollständiger Teilgraph $K_k$, also $K_k \subseteq G$.
+    Da Clique NP-vollständig ist~\cite{garey1979}, folgt NP-Vollständigkeit des allgemeinen
+    Subgraph-Isomorphismus~\cite{ullmann1976}.
+\end{beweis*}
+
+\begin{definition}[Subgraph Algorithmus]
+    Sei $A$ die Adjazenzmatrix eines Graphen. Die \emph{Spalten-Signatur}
+    $\sigma(A)_j = \sum_i A_{ij} \cdot p_i^j$ für eine Primzahl $p$
+    ist ein polynomialer Hash der eingehenden Kanten jedes Knotens.
+    Zwei Spalten-Signaturen stimmen überein, wenn die Knotengrade und
+    Nachbarschaftsmuster übereinstimmen.
+    Der Algorithmus prüft durch zyklische Rotation, ob Spalten von $R$
+    in $A$ enthalten sind.
+\end{definition}
+
+\begin{satz}[Rückgabe-Entscheidungen]
+    \texttt{Subgraph.compare\_graphs(R, G)} gibt eine von fünf
+    Entscheidungen zurück:
+    \begin{itemize}
+        \item \texttt{"keep\_B"}: $R \subseteq G$ (Muster erkannt)
+        \item \texttt{"keep\_A"}: $G \subseteq R$ (kein Muster)
+        \item \texttt{"equal\_keep\_A"}, \texttt{"equal\_keep\_B"}: $R = G$ (Muster erkannt)
+        \item \texttt{"keep\_both"}: weder $R \subseteq G$ noch $G \subseteq R$
+    \end{itemize}
+\end{satz}
+
+\subsection{Zentrale Utility: \texttt{subgraph\_contains}}
+
+FyLab kapselt den Algorithmus in einer einzigen zentralen Funktion,
+die von allen Modulen importiert wird (analog \texttt{\_compare\_topology}
+in PyLab):
+
+\begin{lstlisting}[caption=subgraph\_contains -- zentraler Einstiegspunkt für alle Module]
+from fylab.algorithms.subgraph_finance import subgraph_contains
+
+def subgraph_contains(
+    R: np.ndarray,      # Referenz-/Mustergraph (Adjazenzmatrix)
+    G: np.ndarray,      # Zu durchsuchender Graph
+    use_adjacency_list: bool = False,
+) -> tuple[bool, str]:
+    """
+    Prueft ob R als Subgraph in G enthalten ist.
+    Matrizen werden automatisch zero-gepaddet (analog pylabb).
+    Rueckgabe: (detected: bool, decision: str)
+    """
+    from subgraph import Subgraph
+    n_max = max(R.shape[0], G.shape[0])
+    R_pad = _pad_matrix(R, n_max).astype(float)
+    G_pad = _pad_matrix(G, n_max).astype(float)
+    algo = Subgraph(use_adjacency_list=use_adjacency_list)
+    decision, _ = algo.compare_graphs(R_pad, G_pad)
+    detected = decision in ("keep_B","equal_keep_A","equal_keep_B","equal")
+    return detected, decision
+\end{lstlisting}
+
+\textbf{Das Padding-Prinzip} (identisch mit PyLab): Da $R$ und $G$
+unterschiedliche Knotenanzahlen haben können, werden beide auf
+$n_{\max} = \max(|V_R|, |V_G|)$ mit Nullen aufgefüllt, bevor
+\texttt{compare\_graphs} aufgerufen wird:
+
+\[
+    R_{\text{pad}} \in \{0,1\}^{n_{\max} \times n_{\max}}, \quad
+    R_{\text{pad}}[i,j] = \begin{cases} R[i,j] & i,j < |V_R| \\ 0 & \text{sonst} \end{cases}
+\]
+
+\subsection{Reduktion: Betrugserkennung $\leq_p$ Subgraph-ISO}
+\label{sec:fraud_reduce}
+
+\begin{reduktion}
+    \textbf{FRAUD\_DETECT $\leq_p$ SUBGRAPH\_ISO}
+
+    Gegeben: Transaktionsnetzwerk $G$ (Konten als Knoten, Überweisungen als
+    gerichtete Kanten), Betrugsmuster $R$ (z.B.\ Wash-Trading, Smurfing).
+
+    \textbf{Konstruktion} (in polynomieller Zeit $O(n^2)$):
+    \begin{enumerate}
+        \item Jede Transaktion $(s, r, w)$ wird als Kante $(s \to r)$
+              mit Gewicht $w$ in die Adjazenzmatrix $A_G$ eingetragen.
+        \item Das Betrugsmuster wird als binäre Referenzmatrix $A_R$ hinterlegt.
+        \item Betrugsmuster erkannt $\Leftrightarrow$ \texttt{subgraph\_contains($A_R$, $A_G$)}
+              liefert \texttt{True}.
+    \end{enumerate}
+\end{reduktion}
+
+\begin{table}[h]
+    \centering
+    \begin{tabular}{@{}llll@{}}
+        \toprule
+        \textbf{Muster} & \textbf{Topologie} & \textbf{Matrix $R$} & \textbf{Beschreibung} \\
+        \midrule
+        Wash-Trading   & $A \to B \to A$   &
+            $\begin{pmatrix}0&1\\1&0\end{pmatrix}$ & Scheinhandel \\
+        Smurfing       & Stern $A \to \{B_i\}$ &
+            $A[0,1..4]=1$ & Summen aufteilen \\
+        Layering       & $A{\to}B{\to}C{\to}D$ &
+            $A[i,i{+}1]=1$ & Schichtweise \\
+        Circular Flow  & $A{\to}B{\to}C{\to}A$ &
+            $3{\times}3$-Zyklus & Kreisfluss \\
+        \bottomrule
+    \end{tabular}
+    \caption{Referenz-Adjazenzmatrizen der Betrugsmuster für \texttt{subgraph\_contains}}
+    \label{tab:muster}
+\end{table}
+
+\begin{figure}[h]
+    \centering
+    \begin{tikzpicture}[
+        node distance=1.5cm,
+        every node/.style={circle, draw, minimum size=0.7cm, font=\small},
+        ->, >=Stealth,
+    ]
+        % Wash-Trading
+        \node (A1) at (0,0) {A};
+        \node (B1) at (2,0) {B};
+        \draw (A1) to[bend left=20] (B1);
+        \draw (B1) to[bend left=20] (A1);
+        \node[draw=none] at (1,-0.8) {Wash-Trading};
+
+        % Smurfing
+        \node (C) at (4.5, 0.8) {C};
+        \node (D1) at (6.0, 1.5) {$d_1$};
+        \node (D2) at (6.0, 0.8) {$d_2$};
+        \node (D3) at (6.0, 0.1) {$d_3$};
+        \draw (C) -> (D1); \draw (C) -> (D2); \draw (C) -> (D3);
+        \node[draw=none] at (5.2,-0.3) {Smurfing};
+
+        % Circular Flow
+        \node (X) at (9.0, 1.2) {X};
+        \node (Y) at (10.2, 0.2) {Y};
+        \node (Z) at (8.0, 0.2) {Z};
+        \draw (X) -> (Y); \draw (Y) -> (Z); \draw (Z) -> (X);
+        \node[draw=none] at (9.1,-0.4) {Circular Flow};
+    \end{tikzpicture}
+    \caption{Topologien der Betrugsmuster als gerichtete Referenzgraphen $R$}
+\end{figure}
+
+\begin{lstlisting}[caption=Betrugserkennung -- Anwendung von subgraph\_contains]
+from fylab.algorithms.subgraph_finance import (
+    build_transaction_graph, detect_fraud_patterns, FraudPattern,
+)
+txns = [("Alice", "Bob", 1500), ("Bob", "Alice", 1500)]
+g = build_transaction_graph(txns)
+results = detect_fraud_patterns(g, [FraudPattern.WASH_TRADING])
+print(results[0])  # [ERKANNT] Wash-Trading  (decision='keep_B')
+\end{lstlisting}
+
+% ============================================================
+\section{Arbitrage: Erkennung mit Subgraph-Vorfilter}
+\label{sec:arbitrage}
+% ============================================================
+
+\subsection{Motivation: Warum ein Subgraph-Vorfilter?}
+
+Bellman-Ford~\cite{bellman1958, cormen2022} (\(O(V \cdot E)\)) prüft Kantengewichte auf negative Zyklen.
+Aber eine notwendige Vorbedingung ist, dass im Konnektivitätsgraphen überhaupt
+ein gerichteter Zyklus existiert. Ein azyklischer Währungsgraph kann
+\emph{keine} Arbitrage enthalten.
+
+Der Subgraph Algorithmus (\(O(n^3)\)) erledigt diese strukturelle
+Vorprüfung optimal:
+\[
+    \text{CYCLE\_EXISTS} \leq_p \text{SUBGRAPH\_ISO}
+\]
+
+\begin{reduktion}
+    \textbf{ARBITRAGE\_DETECT (zweistufig)}
+
+    \begin{enumerate}
+        \item \textbf{Stufe 1 -- Subgraph-Vorprüfung} ($O(n^3)$):
+        Prüfe ob der Konnektivitätsgraph des Währungsmarkts einen
+        $k$-Zyklus ($k \in \{2,3,4,5\}$) als Subgraph enthält.
+        Referenzmatrizen:
+        \[
+            R_2 = \begin{pmatrix}0&1\\1&0\end{pmatrix}, \quad
+            R_3 = \begin{pmatrix}0&1&0\\0&0&1\\1&0&0\end{pmatrix}, \quad
+            R_k \text{ analog}
+        \]
+        Falls \emph{kein} $k$-Zyklus strukturell existiert:
+        sofortige Rückgabe \texttt{has\_arbitrage=False} ohne Bellman-Ford.
+
+        \item \textbf{Stufe 2 -- Bellman-Ford} ($O(V \cdot E)$):
+        Transformiere Gewichte: $w(i{\to}j) = -\log(r_{ij})$.
+        Arbitrage $\Leftrightarrow$ negativer Zyklus.
+    \end{enumerate}
+
+    \textbf{Kombilemma}: ARBITRAGE $\leq_p$ NEG\_CYCLE $\leq_p$ BELLMAN\_FORD,
+    und CYCLE\_EXISTS (notwendige Bedingung) $\leq_p$ SUBGRAPH\_ISO.
+\end{reduktion}
+
+\begin{lstlisting}[caption=Zweistufige Arbitrageerkennung]
+from fylab.algorithms.arbitrage import detect_arbitrage, detect_cycle_patterns
+
+# Stufe 1: Subgraph prueft ob ueberhaupt Zyklen strukturell vorhanden
+checks = detect_cycle_patterns(currencies, exchange_rates)
+if not any(r.detected for r in checks):
+    return ArbitrageResult(has_arbitrage=False, ...)  # kein Bellman-Ford noetig
+
+# Stufe 2: Bellman-Ford fuer Gewichtspruefung
+result = detect_arbitrage(currencies, exchange_rates)
+# result.cycle_patterns enthaelt alle Subgraph-Vorpruefergebnisse
+\end{lstlisting}
+
+\subsection{Polynomielle Reduktion ARBITRAGE $\leq_p$ BELLMAN-FORD}
+
+\begin{reduktion}
+    \textbf{Transformation}: Setze $w(i \to j) = -\log(r_{ij})$.
+    \[
+        \prod r_{ij} > 1 \;\Longleftrightarrow\; \sum{-\log r_{ij}} < 0
+        \;\Longleftrightarrow\; \text{negativer Zyklus in } (w_{ij})
+    \]
+    Transformation in $O(E)$. \textbf{NEGATIVE\_CYCLE $\leq_p$ BELLMAN\_FORD}.
+\end{reduktion}
+
+% ============================================================
+\section{Schuldenstruktur-Analyse: Subgraph-Musteranalyse}
+\label{sec:maxflow}
+% ============================================================
+
+\subsection{Subgraph-basierte Strukturanalyse der Schuldenliste}
+
+Vor dem Greedy-Schuldenausgleich analysiert FyLab die Schuldenstruktur
+mit dem Subgraph Algorithmus:
+\[
+    \text{SCHULDEN\_MUSTER} \leq_p \text{SUBGRAPH\_ISO}
+\]
+
+\begin{table}[h]
+    \centering
+    \begin{tabular}{@{}lll@{}}
+        \toprule
+        \textbf{Muster} & \textbf{Topologie} & \textbf{Bedeutung} \\
+        \midrule
+        Dreieck-Schuld & $A{\to}B{\to}C{\to}A$ & gegenseitige Verrechnung möglich \\
+        Hub-Schuldner  & $A{\to}B, A{\to}C, A{\to}D$ & Sammeltransaktion empfohlen \\
+        Hub-Gläubiger  & $B{\to}A, C{\to}A, D{\to}A$ & direkte Auszahlung \\
+        Schulden-Kette & $A{\to}B{\to}C{\to}D$ & indirekte Weiterleitung \\
+        \bottomrule
+    \end{tabular}
+    \caption{Schuldenmuster als Subgraph-Referenzmatrizen}
+\end{table}
+
+Je nach erkanntem Muster liefert die Analyse eine Erklärung für die
+optimale Vereinfachungsstrategie:
+
+\begin{lstlisting}[caption=Schuldenstruktur-Analyse via Subgraph]
+from fylab.algorithms.max_flow import detect_debt_patterns, simplify_debts
+
+patterns = detect_debt_patterns(debts)
+# Gibt an welche Strukturen im Schuldengrafen enthalten sind
+for p in patterns:
+    if p.detected:
+        print(f"Muster erkannt: {p.pattern.value}")
+
+# Greedy-Vereinfachung
+transactions = simplify_debts(debts)
+\end{lstlisting}
+
+\subsection{Schuldenausgleich: Reduktion aus Net-Balance}
+
+\begin{reduktion}
+    \textbf{DEBT\_SIMPLIFY $\leq_p$ NET\_BALANCE}
+
+    Gegeben Schuldenliste $\{(i,j,a_{ij})\}$. Nettosaldo:
+    $b_i = \sum_j a_{ji} - \sum_j a_{ij}$.
+    Personen mit $b_i > 0$ sind Gläubiger, mit $b_i < 0$ Schuldner.
+    Greedy-Matching: $O(n \log n)$.
+
+    \textbf{Hinweis}: Minimierung der Transaktionsanzahl ist NP-hart
+    (Reduktion aus PARTITION). Greedy löst das Nettosaldo-Problem optimal,
+    nicht das allgemeine Minimierungsproblem.
+\end{reduktion}
+
+\subsection{Cashflow-Optimierung: Max-Flow}
+
+\begin{definition}[Zahlungsnetzwerk]
+    Ein Zahlungsnetzwerk $N = (G, s, t, c)$ mit Kapazitätsfunktion
+    $c: E \to \mathbb{R}_{>0}$ modelliert maximale Transferbeträge.
+    Gesucht: maximaler Geldfluss von Quelle $s$ zu Senke $t$.
+\end{definition}
+
+\textbf{Algorithmus:} Edmonds-Karp~\cite{edmonds1972, cormen2022} (BFS-Ford-Fulkerson), $O(VE^2)$.
+
+% ============================================================
+\section{Portfolio-Diversifikation: MST + Subgraph}
+\label{sec:mst}
+% ============================================================
+
+\subsection{Korrelationsgraph und Pearson-Distanz}
+
+Gegeben $n$ Assets mit Korrelationsmatrix $C \in [-1,1]^{n \times n}$.
+Die \emph{Pearson-Distanz}~\cite{mantegna1999}:
+\[
+    d(i,j) = \sqrt{2(1 - \rho_{ij})} \in [0, 2]
+\]
+
+\textbf{Algorithmus:} Kruskal~\cite{kruskal1956, cormen2022} (Union-Find), $O(n^2 \log n)$.
+
+\subsection{Portfolio-Strukturvergleich via Subgraph-Isomorphismus}
+
+FyLab erlaubt den Vergleich zweier Portfolio-Korrelationsstrukturen:
+\[
+    \text{STRUKTURVERGLEICH} \leq_p \text{SUBGRAPH\_ISO}
+\]
+
+Die Korrelationsmatrix wird nach einem Schwellwert $\tau$ binarisiert:
+\[
+    A_{ij} = \begin{cases} 1 & |\rho_{ij}| > \tau \\ 0 & \text{sonst} \end{cases}
+\]
+
+Danach vergleicht \texttt{subgraph\_contains(A, B)} strukturell:
+Ist die Abhängigkeitsstruktur von Portfolio $A$ in Portfolio $B$ enthalten?
+
+\begin{lstlisting}[caption=Portfolio-Strukturvergleich]
+from fylab.algorithms.mst import compare_portfolio_structures
+
+result = compare_portfolio_structures(
+    symbols_a, corr_a,  # Portfolio A
+    symbols_b, corr_b,  # Portfolio B
+    threshold=0.5,      # Schwelle fuer starke Korrelation
+)
+print(result.description)
+# z.B. "A ist strukturell in B enthalten (B hat Superset der Abhaengigkeiten)"
+\end{lstlisting}
+
+\begin{satz}[MST als Diversifikationswerkzeug~\protect\cite{mantegna1999, markowitz1952}]
+    Der MST des Korrelationsgraphen identifiziert Cluster ähnlicher Assets.
+    Ein optimal diversifiziertes Portfolio wählt je einen Repräsentanten
+    aus jedem MST-Cluster.
+\end{satz}
+
+% ============================================================
+\section{Weitere Probleme: Steuer und Portfolio-Auswahl}
+\label{sec:np_probleme}
+% ============================================================
+
+\subsection{Steueroptimierung: Subset-Sum}
+
+\begin{definition}[Steueroptimierung]
+    Gegeben Ausgaben $a_1, \ldots, a_n \in \mathbb{Z}_{>0}$ und ein
+    absetzbares Budget $B$. Wähle eine Teilmenge $S \subseteq [n]$ mit
+    $\sum_{i \in S} a_i \leq B$ und $\sum_{i \in S} a_i$ maximal.
+\end{definition}
+
+\begin{theorem}
+    STEUER\_OPT ist NP-schwer (Reduktion aus SUBSET-SUM)~\cite{garey1979}.
+\end{theorem}
+
+\begin{beweis*}
+    SUBSET-SUM $\leq_p$ STEUER\_OPT: Setze $B = T$ (Zielwert).
+    SUBSET-SUM hat eine Lösung $\Leftrightarrow$ STEUER\_OPT liefert
+    Summe $= B$.
+\end{beweis*}
+
+\textbf{Lösung:} Dynamische Programmierung in $O(nB)$ (pseudopolynomiell)~\cite{cormen2022}.
+
+\subsection{Portfolioauswahl: 0-1-Rucksack}
+
+\begin{reduktion}
+    \textbf{PORTFOLIO\_SELECT $\leq_p$ KNAPSACK}
+
+    Assets mit erwarteter Rendite $r_i$ (Nutzen), Kapital $p_i$ (Gewicht),
+    Gesamtkapital $K$ (Kapazität). KNAPSACK mit FPTAS liefert~\cite{garey1979}
+    $(1-\varepsilon)$-Approximation in $O(n \cdot K / \varepsilon)$.
+\end{reduktion}
+
+% ============================================================
+\section{FyLab Modulhierarchie}
+\label{sec:architektur}
+% ============================================================
+
+\begin{sidewaystable}
+    \centering
+    \begin{tabular}{@{}lll@{}}
+        \toprule
+        \textbf{Modul} & \textbf{Inhalt} & \textbf{Algorithmen} \\
+        \midrule
+        \texttt{core/}         & Konto, Portfolio, Cashflow, Währung
+                               & -- \\
+        \texttt{algorithms/}   & Subgraph, MST, MaxFlow, Arbitrage
+                               & Subgraph Alg., Kruskal, Edmonds-Karp, Bellman-Ford \\
+        \texttt{analysis/}     & Risikokennzahlen, Effizienzgrenze
+                               & VaR, CVaR, Markowitz, Monte-Carlo \\
+        \texttt{visualization/}& Charts, Graphen
+                               & Matplotlib~\cite{hunter2007} \\
+        \texttt{gui/}          & PyQt6-Fenster und Widgets
+                               & -- \\
+        \bottomrule
+    \end{tabular}
+    \caption{FyLab Modulhierarchie}
+\end{sidewaystable}
+
+\subsection{Klassifikation der GUI-Module analog PyLab}
+
+\begin{sidewaystable}
+    \centering
+    \begin{tabular}{@{}lll@{}}
+        \toprule
+        \textbf{Widget} & \textbf{Funktion} & \textbf{Algorithmus} \\
+        \midrule
+        AccountWidget    & Buchungsverwaltung, Monatsübersicht & -- \\
+        PortfolioWidget  & Depot, Allokation, Effizienzgrenze & Markowitz~\cite{markowitz1952}, Kruskal~\cite{kruskal1956} \\
+        CashflowWidget   & Planung, Wasserfall-Chart & -- \\
+        GraphWidget      & Betrug, Arbitrage, Schulden
+                         & Subgraph Alg., Bellman-Ford, Greedy \\
+        RiskWidget       & VaR, CVaR~\cite{rockafellar2000}, Monte-Carlo & Normalvert., Quantile~\cite{sharpe1964} \\
+        \bottomrule
+    \end{tabular}
+    \caption{GUI-Widgets und zugehörige Algorithmen}
+\end{sidewaystable}
+
+% ============================================================
+\section{Installation und Start}
+\label{sec:install}
+% ============================================================
+
+\begin{lstlisting}[language=bash, caption=Installation und Start]
+# FyLab installieren
+pip install -e ".[dev]"
+
+# Tests ausfuehren
+pytest
+
+# GUI starten
+fylab-gui
+\end{lstlisting}
+
+% ============================================================
+\section{Schluss}
+\label{sec:schluss}
+% ============================================================
+
+FyLab demonstriert, dass die zentralen Strukturprobleme des Finanzwesens
+direkt auf klassische Graphprobleme der Theoretischen Informatik
+zurückgeführt werden können:
+
+\begin{itemize}
+    \item \textbf{NP-vollständige Probleme} (Subgraph-Isomorphismus,
+    Portfolio-Auswahl, Steueroptimierung) werden durch Heuristiken,
+    FPTAS oder Exponentialzeitalgorithmen mit polynomiellem Preprocessing
+    behandelt.
+    \item \textbf{Polynomial lösbare Probleme} (MST, MaxFlow, Bellman-Ford,
+    Dijkstra) erlauben exakte Lösungen in vertretbarer Laufzeit.
+    \item Der \textbf{Subgraph Algorithmus} (\texttt{git+gitlab.com/epp-group/subgraph})
+    ist das algorithmische Herzstück von FyLab. Durch die zentrale Utility
+    \texttt{subgraph\_contains\newline (R, G)} wird er in allen vier Algorithmusmodulen
+    eingesetzt:
+    \begin{enumerate}
+        \item \texttt{subgraph\_finance}: Direkte Betrugsmuster-Erkennung, das heißt FRAUD\_\newline DETECT $\leq_p$ SUBGRAPH\_ISO
+        \item \texttt{arbitrage}: Strukturelle Zyklus-Vorprüfung vor Bellman-Ford, das heißt CYCLE\_EXISTS $\leq_p$ SUBGRAPH\_ISO
+        \item \texttt{max\_flow}: Schuldenstruktur-Mustererkennung, das heißt SCHULDEN\_\newline MUSTER $\leq_p$ SUBGRAPH\_ISO
+        \item \texttt{mst}: Portfolio-Strukturvergleich zweier Korrelationsgraphen, das heißt STRUKTURVERGLEICH $\leq_p$ SUBGRAPH\_ISO
+    \end{enumerate}
+\end{itemize}
+
+\subsection{Ausblick}
+
+Das vorliegende FyLab-System bildet eine solide algorithmische Grundlage
+für ein breites Spektrum weiterführender Erweiterungen.
+Dieser Abschnitt gliedert mögliche Entwicklungsrichtungen entlang der
+Dimensionen \emph{Algorithmen}, \emph{Architektur}, \emph{Daten},
+\emph{Sicherheit} und \emph{Forschung}.
+
+% ----------------------------------------------------------------
+\subsection{Erweiterte Graphalgorithmen und theoretische Vertiefung}
+\label{sub:ausblick_algo}
+% ----------------------------------------------------------------
+
+\paragraph{Dynamische Subgraph-Erkennung.}
+Der aktuelle Subgraph Algorithmus~\cite{subgraph} operiert auf statischen
+Adjazenzmatrizen. Finanztransaktionsgraphen sind jedoch inhärent zeitveränderlich:
+Neue Buchungen entstehen, Kontosalden ändern sich, Betrugsmuster entwickeln sich
+adaptiv. Ein nächster Schritt wäre die Integration eines
+\emph{inkrementellen Subgraph-Matchings}~\cite{cordella2004}, das bei Graphänderungen
+nur betroffene Teilstrukturen neu berechnet, statt den gesamten Graphen erneut
+zu analysieren. Dies würde die amortisierte Laufzeit von $O(n^3)$ pro Update
+auf $O(\Delta \cdot n^2)$ senken, wobei $\Delta$ die Anzahl geänderter Kanten
+bezeichnet.
+
+\paragraph{Hypergraph-Erweiterung für Mehrparteiengeschäfte.}
+Klassische gerichtete Graphen modellieren bilaterale Transaktionen
+(\emph{A überweist an B}). Viele reale Finanzvorgänge sind jedoch mehrparteienbasiert
+(z.\,B.\ Syndikatkredite, DvP-Settlements, Escrow-Konstruktionen).
+Eine \emph{Hypergraph-Repräsentation}, bei der Hyperkanten Mengen von
+Teilnehmern verbinden, erlaubt eine präzisere Modellierung solcher Strukturen.
+Die Subgraph-Isomorphismus-Suche auf Hypergraphen ist zwar noch NP-schwerer
+als im Standardfall~\cite{garey1979}, jedoch erlauben polynomielle
+Signaturen analoger Art eine effiziente Filterung in der Praxis.
+
+\paragraph{Approximationsalgorithmen für Portfolio-Optimierung.}
+Das Markowitz-Modell in \cite{markowitz1952} setzt vollständige Bekanntheit der
+Kovarianzmatrix voraus. In der Praxis sind Korrelationen instabil und
+müssen aus historischen Daten geschätzt werden. Hier bieten sich
+\emph{robuste Optimierungsverfahren}~\cite{rockafellar2000} an, die explizit
+Schätzunsicherheiten in die Zielfunktion einbeziehen: Min-Max-Portfolios,
+ellipsoide Unsicherheitsmengen oder distributionell robuste Optimierung
+(DRO) über Wasserstein-Kugeln.
+
+\paragraph{Online-Algorithmen für Echtzeit-Arbitrage.}
+Der aktuelle Bellman-Ford-Ansatz~\cite{bellman1958} berechnet negative Zyklen
+im vollständigen Wechselkursgraphen. An Devisenmärkten ändern sich Kurse im
+Millisekundenbereich. Ein \emph{Online-Algorithmus} müsste eingehende
+Kurs-Updates in $O(\log n)$ verarbeiten und dabei negative Zyklen dynamisch
+nachverfolgen – ein offenes Problem an der Schnittstelle von
+Graphentheorie und Streaming-Computing.
+
+\paragraph{Exakte Lösung des Knapsack-Problems via Branch-and-Bound.}
+Das Portfolio-Auswahlproblem nutzt aktuell einen FPTAS-Ansatz~\cite{garey1979}.
+Für Instanzen moderater Größe ($n \leq 500$ Assets) ist ein
+\emph{Branch-and-Bound-Verfahren} mit Korrelationsschnitt als
+obere Schranke oft exakter und schneller. Dies ist insbesondere für
+Steueroptimierungsszenarien interessant, bei denen die Kapazität $B$
+einem fixen Jahresfreibetrag entspricht und exakte Lösungen regulatorisch
+gefordert werden.
+
+% ----------------------------------------------------------------
+\subsection{Maschinelles Lernen und KI-Integration}
+\label{sub:ausblick_ml}
+% ----------------------------------------------------------------
+
+\paragraph{Graph Neural Networks für Betrugserkennung.}
+Der regelbasierte Subgraph-Iso\-morphismus-Ansatz erkennt bekannte,
+explizit modellierte Betrugsmuster (Wash-Trading, Smurfing, Layering).
+\emph{Graph Neural Networks (GNNs)}~\cite{garey1979} können hingegen latente,
+nicht vorab spezifizierte Anomalien lernen. Eine vielversprechende Architektur
+wäre ein \emph{Graph Attention Network (GAT)}, das auf historisch gelabelten
+Transaktionsgraphen trainiert wird und neue Betrugstypen ohne explizite
+Muster-Definition detektiert. Der Subgraph Algorithmus könnte dabei als
+effizienter \emph{Feature-Extraktor} dienen: erkannte Muster fließen als
+binäre Merkmale in das GNN ein.
+
+\paragraph{Reinforcement Learning für dynamische Asset-Allokation.}
+Markowitz-basierte statische Portfoliooptimierung ignoriert die zeitliche
+Dynamik von Märkten. Ein \emph{Deep Reinforcement Learning (DRL)}-Agent
+könnte täglich Portfoliogewichte anpassen, basierend auf dem aktuellen
+MST-Clusteringzustand des Korrelationsgraphen. Der MST dient als
+\emph{Zustandsrepräsentation}: sein Topologiewechsel (z.\,B.\ Verlust einer
+Hub-Kante) signalisiert Regimewechsel am Markt und löst Rebalancing-Aktionen
+aus.
+
+\paragraph{Anomalieerkennung in Cashflow-Zeitreihen.}
+Isolierte Kassenabweichungen, unerwartete Frequenzänderungen und saisonale
+Drift sind schwer durch statische Regeln zu erfassen. \emph{Autoregressive
+Transformermodelle} (analogie zu GPT für Zeitreihen) könnten auf dem
+Cashflow-Planungsmodul trainiert werden, um Abweichungen von der erwarteten
+monatlichen Dynamik statistisch zu quantifizieren und dem Nutzer
+frühzeitig anzuzeigen.
+
+% ----------------------------------------------------------------
+\subsection{Persistenz, Import und Datenintegration}
+\label{sub:ausblick_daten}
+% ----------------------------------------------------------------
+
+\paragraph{Persistente Datenhaltung.}
+Version~1.0 hält alle Daten im Arbeitsspeicher. Ein produktives System
+benötigt eine eingebettete Datenbank (SQLite via \texttt{SQLAlchemy} oder
+DuckDB) mit klar definiertem Schema für Konten, Transaktionen, Positionen
+und Cash\-flow-Pläne. Das Datenbankschema würde dabei die algebraische
+Struktur der Graph-Adjazenz\-¸matrizen widerspiegeln: Knoten als Entitäten-
+tabellen, Kanten als Relationsatbellen mit FK-Referenzen.
+
+\paragraph{CSV/JSON/MT940-Import.}
+Reale Kontoauszüge liegen in Formaten wie \texttt{MT940},
+\texttt{OFX/QFX} (Quicken) oder bankenspezifischen CSV-Exporten vor.
+Eine robuste Import-Pipeline mit automatischer Kategorisierung
+(via Schlüsselwort-Heuristik oder kleinem Klassifikationsmodell)
+und Duplikaterkennung würde FyLab für den produktiven Einsatz
+qualifizieren. Dies ist als Milestone 1.1 im Quellcode markiert.
+
+\paragraph{Live-Marktdaten via REST-APIs.}
+Aktuelle Aktienkurse, Wechselkurse und Zinssätze könnten über
+Standard-APIs (Yahoo Finance, Alpha Vantage, ECB Data Portal) abgerufen
+und direkt in die Algorithmusmodule eingespeist werden. Der Arbitrage-Detektor
+würde so zu einem \emph{Echtzeit-Alert-System}: bei Überschreitung einer
+vordefinierten Arbitrage-Schwelle ($\prod_k r_k > 1 + \varepsilon$) generiert
+FyLab automatisch eine Handlungsempfehlung.
+
+\paragraph{Blockchain-Transaktionsgraphen.}
+Die Graph-Infrastruktur von FyLab ist nicht auf klassische Bankbuchungen
+beschränkt. Öffentliche Blockchain-Ledger (Ethereum, Bitcoin) exponieren
+Transaktionsgraphen, auf denen die Betrugsmuster-Erkennung via Subgraph-
+Isomorphismus unmittelbar anwendbar ist. Mixer-Muster, Tornado-Cash-ähnliche
+Strukturen und Chain-Hopping könnten als spezialisierte \texttt{FraudPattern}-
+Einträge modelliert und automatisch erkannt werden.
+
+% ----------------------------------------------------------------
+\subsection{Architektur und Skalierbarkeit}
+\label{sub:ausblick_arch}
+% ----------------------------------------------------------------
+
+\paragraph{Asynchrone Berechnung im GUI.}
+Langläufige Operationen (Monte-Carlo mit $10^6$ Pfaden, MST auf
+500-Asset-Portfolios, Effizienzgrenzberechnung mit $10^4$ Punkten)
+blockieren aktuell den Qt-Event-Loop. Die Umstellung auf
+\texttt{QThread} oder \texttt{asyncio}-kompatible Qt-Coroutinen
+(über \texttt{qasync}) würde responsives UI-Verhalten auch bei rechenintensiven
+Analysen gewährleisten ohne strukturellen Umbau der Algorithmusmodule.
+
+\paragraph{Plugin-Architektur für Algorithmen.}
+Das aktuelle System registriert Algorithmen statisch im \texttt{algorithms/}-Pakket.
+Eine \emph{Plugin-API} (ähnlich dem pytest-Plugin-System) würde es erlauben,
+neue Algorithmusmodule zur Laufzeit zu laden: Drittentwickler könnten eigene
+Betrugsmuster, Risikokennzahlen oder Optimierungsverfahren als
+\texttt{fylab-plug\newline in-*}-Pakete publizieren, die automatisch in die Menüs und
+Widgets des Hauptfensters integriert werden.
+
+\paragraph{Parallele Subgraph-Suche.}
+Die $O(n^3)$-Hauptschleife des Subgraph Algorithmus~ \cite{subgraph}
+ist datenparallel: Signaturen verschiedener Knotenpaare sind unabhängig
+berechenbar. Mit \texttt{numpy}-Vektorisierung (bereits teilweise realisiert)
+oder einer CUDA-Kernel-Implemen\-tierung (via \texttt{cupy}) ließe sich die
+Laufzeit auf Portfolios mit $n > 1000$ Knoten auf Millisekunden reduzieren.
+
+\paragraph{REST-API und Microservice-Architektur.}
+Eine \texttt{FastAPI}-basierte REST-Schicht über den Algorithmusmodulen würde
+FyLab als Backend-Service für Web-Frontends, Mobile Apps oder
+institutionelle Integrationspipelines positionieren. Jedes Modul
+(\texttt{/api/v1/\newline arbitrage}, \texttt{/api/v1/fraud}, \texttt{/api/v1/mst},
+\texttt{/api/v1/portfolio}) exponiert seine Kernfunktionalität als
+zustandslosen HTTP-Endpunkt, der in Kubernetes horizontal skalierbar ist.
+
+% ----------------------------------------------------------------
+\subsection{Regulatorik, Compliance und Sicherheit}
+\label{sub:ausblick_regulatorik}
+% ----------------------------------------------------------------
+
+\paragraph{AML/KYC-Compliance-Engine.}
+Die Betrugsmuster-Erkennung von FyLab tangiert den regulatorischen Bereich
+\emph{Anti-Money Laundering (AML)} und \emph{Know Your Customer (KYC)}.
+Eine dedizierte Compliance-Erweiterung würde FATF-Rekommendationen
+\cite{garey1979}\footnote{Die formale Komplexitätstheorie ist hier analog:
+AML-Regelwerke definieren verbotene Transaktionsmuster, deren Erkennung
+im Transaktionsgraphen ein Subgraph-ISO-Problem darstellt.}
+als formale Muster in \texttt{FraudPattern}-Typen übersetzen und
+einen revisionssicheren Audit-Trail aller Erkennungsergebnisse führen.
+
+\paragraph{Differenzielle Privatheit für Portfolio-Analysen.}
+Portfolioanalysen offenbaren sensible Vermögensdaten. Durch Integration
+von \emph{differenzieller Privatheit} ($\varepsilon$-DP) in den
+Monte-Carlo-Simulator und die Effizienzgrenzenberechnung könnten
+Ergebnisse mit garantiertem Datenschutz an Dritte (z.\,B.\ Steuerberater,
+Banken) weitergegeben werden, ohne individuelle Positionen zu exponieren.
+
+\paragraph{Kryptographische Verifikation.}
+Transaktionsdaten in der eingebetteten Datenbank könnten mittels
+kryptographischer Hashketten (Merkel-Baum über sortierten Buchungen) gegen
+nachträgliche Manipulation gesichert werden – eine leichtgewichtige
+Auditierbarkeit abseits vollständiger Blockchain-Lösungen.
+
+% ----------------------------------------------------------------
+\subsection{Wissenschaftlicher Forschungsausblick}
+\label{sub:ausblick_forschung}
+% ----------------------------------------------------------------
+
+Die in dieser Arbeit etablierten polynomiellen Reduktionen öffnen mehrere offene Forschungsfragen:
+
+\begin{enumerate}
+    \item \textbf{Schärfe der Subgraph-Isomorphismus-Schranke.}\\
+    Gibt es finanzmathematisch relevante Teilklassen des
+    Subgraph-Isomorphismus-Pro\-blems (z.\,B.\ planare Finanzgraphen,
+    Baumstruktur-Portfolios, DAG-Schuldennetz\-werke), für die polynomielle
+    Algorithmen mit garantierter Korrektheit existieren? Die Theorie
+    liefert hier: Subgraph-Isomorphismus auf Bäumen ist in
+    $O(n^{1.5})$ lösbar~\cite{cormen2022}.
+
+    \item \textbf{Durchschnittliche Laufzeit auf realen Finanzdaten.}\\
+    Der Subgraph Algorithmus~\cite{subgraph} hat Worst-Case
+    $O(n^3)$, verhält sich empirisch jedoch nahe $O(n^2)$ auf
+    typischen Finanzgraphen (spärliche Adjazenzmatrizen, wenige
+    Zyklen). Eine formale Average-Case-Analyse über Random-Graph-Modelle
+    (Erdős-Rényi, Barabási–Albert Skalenfreiheit) wäre publikationswürdig.
+
+    \item \textbf{Untere Komplexitätsschranken für Betrugserkennungs-Varianten.}\\
+    Welche spezifischen Betrugsmuster-Erkennungsprobleme sind in $P$?
+    Wash-Trading auf bipartiten Graphen? Smurfing auf Sternstrukturen?
+    Eine vollständige Klassifikation der Tracklabeled-Subgraph-
+    Isomorphismus-Varianten nach ihrer Komplexität fehlt noch in der Literatur.
+
+    \item \textbf{Algebraische Charakterisierung der Pearson-Distanz-MSTs.}\\
+    Mantegna~\cite{mantegna1999} zeigte empirisch, dass Pearson-MSTs
+    stabile Branching-Strukturen aufweisen. Unklar ist, welche
+    algebraischen Eigenschaften des Korrelationstensors diese Stabilität
+    garantieren – eine Verbindung zur Spektraltheorie positiv definiter
+    Matrizen und zum Fiedler-Vektor des Laplacians wäre mathematisch
+    fruchtbar.
+
+    \item \textbf{Verbindung zu Algorithmic Game Theory.}\\
+    Schuldenausgleich via Max-Flow ist ein spezieller Fall von
+    multi-commodity-flow. Wenn Agenten strategisch falsche Schulden
+    deklarieren, entsteht ein unvollständiges-Informations-Spiel.
+    Die Nash-Gleichgewichtsanalyse dieses Spiels und die Frage,
+    ob wahrheitsgemäße Deklaration eine dominante Strategie ist
+    (Mechanism Design), ist ein offenes Problem.
+\end{enumerate}
+
+\begin{table}[h]
+\centering
+\caption{Zusammenfassung der Entwicklungs- und Forschungsrichtungen}
+\label{tab:ausblick}
+\small
+\begin{tabular}{@{}lll@{}}
+    \toprule
+    \textbf{Bereich} & \textbf{Erweiterung} & \textbf{Zeithorizont} \\
+    \midrule
+    Algorithmen   & Inkrementelles Subgraph-Matching           & kurzfristig \\
+    Algorithmen   & GNN-gestützte Betrugserkennung             & mittelfristig \\
+    Algorithmen   & DRL für dynamische Asset-Allokation        & mittelfristig \\
+    Daten         & MT940/CSV-Import-Pipeline                  & kurzfristig \\
+    Daten         & Live-API-Anbindung (ECB, Alpha Vantage)    & kurzfristig \\
+    Daten         & Blockchain-Transaktionsgraph               & mittelfristig \\
+    Architektur   & Qt-Threads für Async-Berechnung            & kurzfristig \\
+    Architektur   & REST-API / Microservice                    & mittelfristig \\
+    Architektur   & Plugin-System für Drittmodule              & langfristig \\
+    Sicherheit    & AML/KYC-Compliance-Engine                  & mittelfristig \\
+    Sicherheit    & Differenzielle Privatheit                  & langfristig \\
+    Forschung     & Average-Case-Analyse Subgraph-ISO          & mittelfristig \\
+    Forschung     & Mechanism Design Schuldenausgleich         & langfristig \\
+    \bottomrule
+\end{tabular}
+\end{table}
+
+\begin{thebibliography}{99}
+
+\bibitem{subgraph}
+Stephan Epp.
+\textit{Der Subgraph Algorithmus}, 7.\ Januar 2026.
+Verfügbar unter: \url{https://gitlab.com/epp-group/subgraph}
+
+\bibitem{ullmann1976}
+J.~R.~Ullmann.
+\newblock An algorithm for subgraph isomorphism.
+\newblock \textit{Journal of the ACM}, 23(1):31--42, 1976.
+
+\bibitem{cordella2004}
+L.~P.~Cordella, P.~Foggia, C.~Sansone, M.~Vento.
+\newblock A (Sub)Graph Isomorphism Algorithm for Matching Large Graphs.
+\newblock \textit{IEEE Transactions on Pattern Analysis and Machine
+  Intelligence}, 26(10):1367--1372, 2004.
+
+\bibitem{cook1972}
+S.~A.~Cook.
+\newblock The complexity of theorem-proving procedures.
+\newblock In \textit{Proceedings of the 3rd Annual ACM Symposium on Theory
+  of Computing (STOC)}, S.~151--158. ACM, New York, 1972.
+
+\bibitem{garey1979}
+M.~R.~Garey, D.~S.~Johnson.
+\newblock \textit{Computers and Intractability: A Guide to the Theory of
+  NP-Completeness}.
+\newblock W.~H.~Freeman, San Francisco, 1979.
+
+\bibitem{cormen2022}
+T.~H.~Cormen, C.~E.~Leiserson, R.~L.~Rivest, C.~Stein.
+\newblock \textit{Introduction to Algorithms}, 4.~Auflage.
+\newblock MIT Press, Cambridge, MA, 2022.
+
+\bibitem{bellman1958}
+R.~Bellman.
+\newblock On a routing problem.
+\newblock \textit{Quarterly of Applied Mathematics}, 16(1):87--90, 1958.
+
+\bibitem{ford1956}
+L.~R.~Ford, D.~R.~Fulkerson.
+\newblock Maximal flow through a network.
+\newblock \textit{Canadian Journal of Mathematics}, 8:399--404, 1956.
+
+\bibitem{edmonds1972}
+J.~Edmonds, R.~M.~Karp.
+\newblock Theoretical improvements in algorithmic efficiency for network
+  flow problems.
+\newblock \textit{Journal of the ACM}, 19(2):248--264, 1972.
+
+\bibitem{kruskal1956}
+J.~B.~Kruskal.
+\newblock On the shortest spanning subtree of a graph and the traveling
+  salesman problem.
+\newblock \textit{Proceedings of the American Mathematical Society},
+  7(1):48--50, 1956.
+
+\bibitem{dijkstra1959}
+E.~W.~Dijkstra.
+\newblock A note on two problems in connexion with graphs.
+\newblock \textit{Numerische Mathematik}, 1(1):269--271, 1959.
+
+\bibitem{mantegna1999}
+R.~N.~Mantegna.
+\newblock Hierarchical structure in financial markets.
+\newblock \textit{The European Physical Journal B}, 11(1):193--197, 1999.
+
+\bibitem{markowitz1952}
+H.~Markowitz.
+\newblock Portfolio selection.
+\newblock \textit{The Journal of Finance}, 7(1):77--91, 1952.
+
+\bibitem{sharpe1964}
+W.~F.~Sharpe.
+\newblock Capital asset prices: A theory of market equilibrium under
+  conditions of risk.
+\newblock \textit{The Journal of Finance}, 19(3):425--442, 1964.
+
+\bibitem{rockafellar2000}
+R.~T.~Rockafellar, S.~Uryasev.
+\newblock Optimization of conditional value-at-risk.
+\newblock \textit{Journal of Risk}, 2(3):21--41, 2000.
+
+\bibitem{artzner1999}
+P.~Artzner, F.~Delbaen, J.-M.~Eber, D.~Heath.
+\newblock Coherent measures of risk.
+\newblock \textit{Mathematical Finance}, 9(3):203--228, 1999.
+
+\bibitem{glasserman2004}
+P.~Glasserman.
+\newblock \textit{Monte Carlo Methods in Financial Engineering}.
+\newblock Springer, New York, 2004.
+
+\bibitem{harris2020}
+C.~R.~Harris, K.~J.~Millman, S.~J.~van der Walt \textit{et al.}
+\newblock Array programming with NumPy.
+\newblock \textit{Nature}, 585:357--362, 2020.
+
+\bibitem{virtanen2020}
+P.~Virtanen, R.~Gommers, T.~E.~Oliphant \textit{et al.}
+\newblock SciPy 1.0: Fundamental algorithms for scientific computing
+  in Python.
+\newblock \textit{Nature Methods}, 17:261--272, 2020.
+
+\bibitem{hunter2007}
+J.~D.~Hunter.
+\newblock Matplotlib: A 2D graphics environment.
+\newblock \textit{Computing in Science \& Engineering}, 9(3):90--95, 2007.
+
+\bibitem{riverbank2023}
+Riverbank Computing Limited.
+\newblock \textit{PyQt6 Reference Guide}, 2023.
+\newblock \url{https://www.riverbankcomputing.com/static/Docs/PyQt6/}.
+  Letzter Zugriff: März 2026.
+
+\end{thebibliography}
+
+\end{document}
